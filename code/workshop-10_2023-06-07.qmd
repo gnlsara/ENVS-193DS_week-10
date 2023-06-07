@@ -1,6 +1,6 @@
 ---
 title: "Coding workshop: Week 10"
-author: "your name here"
+author: "Sara Gonzalez"
 format:
   html:
     toc: true
@@ -21,7 +21,7 @@ library(glmmTMB) # ok if you don't have this - just comment it out
 library(DHARMa)
 library(MuMIn)
 library(ggeffects)
-library(lmtest)
+library(lmtest) 
 library(broom)
 
 # general usage
@@ -32,7 +32,7 @@ library(skimr)
 library(GGally)
 library(flextable)
 
-salamanders <- read_csv(here("data", "salamanders.csv"))
+salamanders <- read_csv(here("data", "Salamanders.csv"))
 ```
 
 # Data info from `glmmTMB`:
@@ -47,24 +47,28 @@ salamanders <- read_csv(here("data", "salamanders.csv"))
 `spp`: abbreviated species name, possibly also life stage  
 `count`: number of salamanders observed  
 
+scaling is useful when its very different numbers (ex: 15-17 Celsius vs 1-365 days)
+takes mean of continuous variables and shifts everything else to center on mean (variables are on same scale so easier to interpret). neg # = below mean and pos # = above mean. 
+
 # Explore the data set:
 
 ## histogram of counts:
 
 ```{r histogram}
-
+ggplot(data = salamanders, aes(x = count)) +
+  geom_histogram(bins = 17)
 ```
 
 ## Missingness:
 
 ```{r missingness}
-
+gg_miss_var(salamanders)
 ```
 
 ## Skim: 
 
 ```{r skim-dataset}
-
+skim(salamanders)
 ```
 
 ## Pairs plot:  
@@ -75,22 +79,27 @@ salamanders <- read_csv(here("data", "salamanders.csv"))
 #| out.width: 90%
 #| fig.align: center
 
+salamanders %>% 
+  # take out site column
+  select(!site) %>% 
+  ggpairs()
 
+# water temp might be normally distributed in relation to species; DOY + sample pearson's correlation is high so indicates strong relationship, but meaningfully, sample isn't necessarily measured variable (more for identification); DOP + wtemp -> negative relationship that flattens out, weak correlation but relationship exists
 ```
 
 # Question: How does salamander count vary with mined status, species, and stream cover?
-
+does mining affect # salamanders
 ## Build models
 
 ```{r models}
-# linear model, we know this is wrong
+# linear model, we know this is wrong, not continuous variable (discrete)
+salmod1 <- lm(count ~ cover + mined + spp, data = salamanders)
 
+# generalized linear model with Poisson distribution; assumption : variance = mean
+salmod2 <- glm(count ~ cover + mined + spp, data = salamanders, family = "poisson")
 
-# generalized linear model with Poisson distribution
-
-
-# generalized linear model with negative binomial distribution
-
+# generalized linear model with negative binomial distribution; glm.nb assumes nb dist.; appropriate for over dispersion, variance > mean
+salmod3 <- glm.nb(count ~ cover + mined + spp, data = salamanders)
 
 # generalized linear model with Poisson distribution and random effect of site
 
@@ -106,35 +115,43 @@ salamanders <- read_csv(here("data", "salamanders.csv"))
 #| fig.width: 8
 #| fig.align: center
 
-# check diagnostics
+# check diagnostics, use darma b/c GLM don't follow same assumptions, simulation of residuals
+simulateResiduals(salmod1, plot = TRUE)
+simulateResiduals(salmod2, plot = TRUE) # look better but significant deviation, residuals are over-dispersed
+simulateResiduals(salmod3, plot = TRUE)
 
 ```
 
 ## Which distribution to use?
 
 ```{r choosing-model}
-
+MuMIn::model.sel(salmod1, salmod2, salmod3) # 100% chance of best model = 1 (weight)
 ```
 
 ## Model summary
 
 ```{r summaries}
 # model object
+salmod3
 
-
-# summary 
-
-
+# summary (z value = test stat based on z dist.)
+summary(salmod3)
+  # cover is potentially not significant, sppDM, sppEC-L as well keeping everything else constant
 # confidence intervals
-
+confint(salmod3)
 
 # adjusted R2
-
+r.squaredGLMM(salmod3) # only look at delta, amount of variance = 43%
+# fairly low due to 3 different predictors
 ```
 
 ```{r}
 # model object in table
+salmod3 %>% 
+  as_flextable()
 
+tidy(salmod3) %>% 
+  flextable()
 ```
 
 
@@ -146,6 +163,9 @@ salamanders <- read_csv(here("data", "salamanders.csv"))
 #| out.width: 90%
 #| fig.align: center
 
+plot(ggpredict(salmod3, terms = c("cover", "mined")), add.data = TRUE)
 
+plot(ggpredict(salmod3, terms = c("cover", "mined", "spp")), add.data = TRUE)
+# cover has no significant effect on salamander count, but mined status and species do
 ```
 
